@@ -37,11 +37,13 @@
     .para label{ font-size: 12px; color: var(--muted); display:flex; align-items:center; gap:6px; }
     .preview{ overflow:auto; max-height: 520px; }
 
-    /* Ruby (pinyin above hanzi) */
+    /* Pinyin above hanzi (stacked cells, PDF-friendly) */
     .doc{ text-align: left; color:#000; background:#fff; padding: 24px; border-radius: 10px; }
-    .doc .p{ margin: 0 0 14px 0; line-height: 1.9; font-size: 18px; }
-    ruby{ ruby-position: over; }
-    rt{ font-size: 11px; color:#333; }
+    .doc .p{ margin: 0 0 14px 0; line-height: 1.6; font-size: 18px; }
+    .line{ display:flex; flex-wrap:wrap; align-items:flex-end; gap: 2px 2px; }
+    .cell{ display:inline-flex; flex-direction:column; align-items:center; justify-content:flex-end; }
+    .py{ font-size: 11px; line-height: 1; color:#333; min-height: 12px; }
+    .hz{ font-size: 18px; line-height: 1.2; }
 
     .hint{ font-size: 12px; color: var(--muted); margin-top: 10px; }
     .small{ font-size: 12px; color: var(--muted); }
@@ -124,13 +126,22 @@
       return /[\u3400-\u9FFF\uF900-\uFAFF]/.test(ch);
     }
 
-    function rubyForChar(ch){
-      if (!isCJK(ch)) return ch; // punctuation/latin stays
-      if (typeof pinyin !== 'function') return ch;
-      const py = pinyin(ch, { toneType: 'symbol', type: 'array' })?.[0] || '';
-      // If pinyin library returns same char or empty, keep char.
-      if (!py || py === ch) return ch;
-      return `<ruby><rt>${escapeHtml(py)}</rt>${escapeHtml(ch)}</ruby>`;
+    function cellForChar(ch){
+      if (ch === '
+') return '<br/>';
+      if (!isCJK(ch)) {
+        // Keep punctuation/latin; still reserve pinyin height for alignment
+        const safe = escapeHtml(ch);
+        return `<span class="cell"><span class="py">&nbsp;</span><span class="hz">${safe}</span></span>`;
+      }
+      if (typeof pinyin !== 'function') {
+        const safe = escapeHtml(ch);
+        return `<span class="cell"><span class="py">&nbsp;</span><span class="hz">${safe}</span></span>`;
+      }
+      const py = (pinyin(ch, { toneType: 'symbol', type: 'array' }) || [''])[0] || '';
+      const safeCh = escapeHtml(ch);
+      const safePy = py ? escapeHtml(py) : '&nbsp;';
+      return `<span class="cell"><span class="py">${safePy}</span><span class="hz">${safeCh}</span></span>`;
     }
 
     function escapeHtml(s){
@@ -197,12 +208,24 @@
     }
 
     async function exportPdf(){
-      // Use html2pdf on docEl only (clean white page)
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+      if (isIOS) {
+        // iOS Safari renders complex layouts to canvas unreliably; use Print -> Save as PDF
+        const w = window.open('', '_blank');
+        const html = `<!doctype html><html><head><meta charset="utf-8"><title>chinese-pinyin</title>
+          <style>body{margin:0;font-family:-apple-system,system-ui;} .doc{padding:24px;} .p{margin:0 0 14px 0;} .line{display:flex;flex-wrap:wrap;align-items:flex-end;gap:2px 2px;} .cell{display:inline-flex;flex-direction:column;align-items:center;justify-content:flex-end;} .py{font-size:11px;line-height:1;color:#333;min-height:12px;} .hz{font-size:18px;line-height:1.2;} @page{margin:12mm;} </style>
+        </head><body>${docEl.outerHTML}<script>window.onload=()=>setTimeout(()=>window.print(),200);<\/script></body></html>`;
+        w.document.open();
+        w.document.write(html);
+        w.document.close();
+        return;
+      }
+
       const opt = {
         margin: [10, 10, 10, 10],
         filename: 'chinese-pinyin.pdf',
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
+        html2canvas: { scale: 2, useCORS: true, scrollY: 0 },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
         pagebreak: { mode: ['css', 'legacy'] },
       };
