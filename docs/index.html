@@ -67,7 +67,7 @@
     <div class="wrap">
       <div class="brand">
         <b>Chinese</b>
-        <span>每字拼音 + 聲調（1A+2A）｜一鍵匯出 PDF</span>
+        <span>每字拼音 + 聲調（1A+2A）｜PDF 匯出｜<b id="ver"></b>｜<span id="status"></span></span>
       </div>
       <nav>
         <a href="#" class="active">Chinese</a>
@@ -91,6 +91,7 @@
           <button class="primary" id="btnPdf">匯出 PDF</button>
           <button class="danger" id="btnClear">清空</button>
         </div>
+        <div id="diag" class="hint" style="margin-top:10px;">狀態：檢查中…</div>
         <div class="hint">PDF 會保持<strong>左對齊</strong>，同保留你分段。拼音用 <code>pinyin-pro</code> 自動生成（普通話，帶聲調符號）。</div>
       </section>
 
@@ -106,6 +107,7 @@
   </main>
 
   <script>
+    const APP_VERSION = 'v2';
     const { pinyin } = window.pinyinPro || {};
 
     const inputEl = document.getElementById('input');
@@ -134,11 +136,12 @@
         const safe = escapeHtml(ch);
         return `<span class="cell"><span class="py">&nbsp;</span><span class="hz">${safe}</span></span>`;
       }
-      if (typeof pinyin !== 'function') {
+      const pyFn = (window.pinyinPro && window.pinyinPro.pinyin) || window._pinyin || pinyin;
+      if (typeof pyFn !== 'function') {
         const safe = escapeHtml(ch);
         return `<span class="cell"><span class="py">&nbsp;</span><span class="hz">${safe}</span></span>`;
       }
-      const py = (pinyin(ch, { toneType: 'symbol', type: 'array' }) || [''])[0] || '';
+      const py = (pyFn(ch, { toneType: 'symbol', type: 'array' }) || [''])[0] || '';
       const safeCh = escapeHtml(ch);
       const safePy = py ? escapeHtml(py) : '&nbsp;';
       return `<span class="cell"><span class="py">${safePy}</span><span class="hz">${safeCh}</span></span>`;
@@ -242,7 +245,74 @@
     // default sample
     inputEl.value = "今天我很開心。\n\n我們一起學中文。\n\n只要每天練習十分鐘，就會有進步。";
     // render after libs loaded
-    window.addEventListener('load', () => render());
+    
+
+    function setStatus(cls, text){
+      const s = document.getElementById('status');
+      if (!s) return;
+      s.className = cls;
+      s.textContent = text;
+    }
+
+    function setDiag(text){
+      const d = document.getElementById('diag');
+      if (d) d.textContent = text;
+    }
+
+    function isIOS(){
+      return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    }
+
+    async function ensurePinyinLib(){
+      // If already present, ok
+      if (window.pinyinPro && typeof window.pinyinPro.pinyin === 'function') return true;
+
+      // Try loading fallback CDN
+      const urls = [
+        'https://unpkg.com/pinyin-pro/dist/index.min.js',
+        'https://cdnjs.cloudflare.com/ajax/libs/pinyin-pro/3.26.0/index.min.js'
+      ];
+
+      for (const src of urls){
+        try {
+          await new Promise((resolve, reject) => {
+            const el = document.createElement('script');
+            el.src = src;
+            el.async = true;
+            el.onload = resolve;
+            el.onerror = reject;
+            document.head.appendChild(el);
+          });
+          if (window.pinyinPro && typeof window.pinyinPro.pinyin === 'function') return true;
+        } catch (e) {}
+      }
+      return false;
+    }
+
+    async function boot(){
+      document.getElementById('ver').textContent = APP_VERSION;
+
+      const ok = await ensurePinyinLib();
+      if (!ok){
+        setStatus('bad', '拼音庫未載入');
+        setDiag('偵測到 pinyin-pro 未能載入（可能被網絡/瀏覽器阻擋 CDN）。請先刷新或改用 Chrome，或等我幫你做離線版（把庫打包入網站）。');
+      } else {
+        // update local ref
+        window._pinyin = window.pinyinPro.pinyin;
+        setStatus('ok', 'OK');
+        setDiag(isIOS() ? 'iPhone/iPad：PDF 會用「列印→儲存為 PDF」方式，較穩定。' : '桌面瀏覽器：可直接生成 PDF。');
+      }
+
+      // Patch pinyin function used by renderer
+      if (window._pinyin && !window.pinyinPro?.pinyin){
+        // no-op
+      }
+
+      render();
+    }
+
+    window.addEventListener('load', () => boot());
+
   </script>
 </body>
 </html>
